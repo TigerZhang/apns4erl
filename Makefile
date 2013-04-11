@@ -41,3 +41,10 @@ test: all
 	else\
 		erl -noshell -noinput ${RUN} -run apns_tests main;\
 	fi
+
+run_mgn: all
+	if [ -f `hostname`.config ]; then \
+		erl -noinput -config `hostname` ${RUN} -run apns_manager_app start; \
+	else \
+		erl -noinput ${RUN} -run apns_manager_app start; \
+	fi
