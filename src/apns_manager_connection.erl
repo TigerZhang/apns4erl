@@ -9,7 +9,7 @@
 %% ====================================================================
 %% API functions
 %% ====================================================================
--export([handle_info/2, handle_cast/2, handle_call/3, start_link/0]).
+-export([handle_info/2, handle_cast/2, handle_call/3, start_link/1]).
 
 
 
@@ -20,10 +20,12 @@
 				in_buffer = <<>>	:: binary(),
 				out_buffer = <<>>	:: binary()}).
 
-%% start_link/0
--spec start_link() -> {ok, pid()} | {error, {already_started, pid()}}.
-start_link() ->
-	gen_server:start_link(?MODULE, [], []).
+%% start_link/1
+-spec start_link([]) -> {ok, pid()} | {error, {already_started, pid()}}.
+start_link(Port) ->
+	supervisor:start_link(?MODULE, Port),
+	supervisor:start_link(?MODULE, accept).
+	
 
 %% init/1
 %% ====================================================================
@@ -37,17 +39,18 @@ start_link() ->
 	State :: term(),
 	Timeout :: non_neg_integer() | infinity.
 %% ====================================================================
-init([]) ->
+init(Port) ->
 	try
-		case gen_tcp:listen(9002, []) of
+		case gen_tcp:listen(Port, []) of
 			{ok, LSocket} -> {ok, #state{socket=LSocket}};
 			{error, Reason} -> {stop, Reason}
 		end
 	catch
 		_:{error, Reason2} -> {stop, Reason2}
-	end.
-
-
+	end;
+init(accept) ->
+	{ok, []}.
+			
 %% handle_call/3
 %% ====================================================================
 %% @doc <a href="http://www.erlang.org/doc/man/gen_server.html#Module:handle_call-3">gen_server:handle_call/3</a>
@@ -102,10 +105,10 @@ handle_info({tcp, Socket, RawData}, State) ->
     {noreply, State};
 
 handle_info(timeout, State) ->
-	io:format("gen_server[~p]: handle_info : timeout.accept ~n",[self()]),
-	{ok, _Sock} = gen_tcp:accept(State#state.socket),
-	io:format("gen_server[~p]: handle_info : timeout.accpeded incoming connection...",[self()]),
-	apns_manager_sup:start_child(),
+%% 	io:format("gen_server[~p]: handle_info : timeout.accept ~n",[self()]),
+%% 	{ok, _Sock} = gen_tcp:accept(State#state.socket),
+%% 	io:format("gen_server[~p]: handle_info : timeout.accpeded incoming connection...",[self()]),
+%% 	apns_manager_sup:start_child(),
 	{noreply, State};
 
 handle_info({tcp_closed, _Socket}, State) ->

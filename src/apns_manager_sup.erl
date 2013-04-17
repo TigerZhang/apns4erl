@@ -20,8 +20,10 @@ start_child() ->
 	supervisor:start_child(?MODULE, []).
 
 %% ====================================================================
-%% Behavioural functions 
+%% Application Behavioural functions 
 %% ====================================================================
+start(_Type, _Args) ->
+	supervisor:start_link(?MODULE, []).
 
 %% init/1
 %% ====================================================================
@@ -40,8 +42,8 @@ start_child() ->
 				   | temporary,
 	Modules :: [module()] | dynamic.
 %% ====================================================================
-init([]) ->
-    Connection = {connection,{apns_manager_connection,start_link,[]},
+init(Port) ->
+    Connection = {connection,{apns_manager_connection,start_link,Port},
 	          permanent,2000,worker,[apns_manager_connection]},
     {ok,{{one_for_all,0,1}, [Connection]}}.
 

@@ -42,6 +42,13 @@ test: all
 		erl -noshell -noinput ${RUN} -run apns_tests main;\
 	fi
 
+test_tcp: all
+	if [ -f `hostname`.config ]; then\
+		erl -noshell -noinput -config `hostname` ${RUN} -run tcp_server_tests main;\
+	else\
+		erl -noshell -noinput ${RUN} -run tcp_server_tests main;\
+	fi
+
 run_mgn: all
 	if [ -f `hostname`.config ]; then \
 		erl -noinput -config `hostname` ${RUN} -run apns_manager_app start; \
