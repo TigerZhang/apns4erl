@@ -50,9 +50,14 @@ handle_info({tcp, Socket, Data}, State) when State#state.auth =:= noauth ->
   [lib_protocol:login(Socket, State, X)||X <- T1],
   {noreply, State};
 
+%% handle_info({tcp, Socket, Data}, State) when State#state.auth =:= auth ->
+%%   T1=string:tokens(Data, "\r\n"),
+%%   [lib_protocol:protocol(Socket, State, X)||X <- T1],
+%%   {noreply, State};
+
 handle_info({tcp, Socket, Data}, State) when State#state.auth =:= auth ->
   T1=string:tokens(Data, "\r\n"),
-  [lib_protocol:protocol(Socket, State, X)||X <- T1],
+  [handle_wrapper(Socket, State, X) ||X <- T1],
   {noreply, State};
 
 handle_info({tcp_closed, _Socket}, State) ->
@@ -64,3 +69,13 @@ handle_info(_Info, State) -> {noreply, State}.
 
 terminate(_Reason, _State) -> ok.
 code_change(_OldVsn, State, _Extra) -> {ok, State}.
+
+
+len([]) -> 0;
+len([_|T]) -> 1 + len(T).
+
+handle_wrapper(Socket, State, Cmd) ->
+	case string:tokens(Cmd, " ") of
+		[Command] -> lib_protocol:protocol(Socket, State, Command);
+		[Command | Args] -> lib_protocol:protocol(Socket, State, Command, Args)
+	end.

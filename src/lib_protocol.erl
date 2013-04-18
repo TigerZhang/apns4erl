@@ -2,6 +2,8 @@
 -compile(export_all).
 %% -import(tcp_socket_handler, [socket_login/1,socket_loop/1]).
 
+-include("apns.hrl").
+
 %% -record(state, {socket, auth, nick, user, host, name}).
 
 -define(TEST_CONNECTION, 'test-apnse').
@@ -41,8 +43,9 @@ protocol(Socket, _State, "status") ->
   gen_tcp:send(Socket, String);
 protocol(Socket, _State, "quit") ->
   close_socket(Socket);
-protocol(Socket, _State, "apnse") ->
-	apns:connect(?TEST_CONNECTION, fun log_error/2, fun log_feedback/1),
+protocol(Socket, _State, "test1") ->
+	apns:connect('test_conn1', (apns:default_connection())#apns_connection
+				   { error_fun = fun log_error/2, feedback_fun = fun log_feedback/1 }),
 %% 	Pid = case apns:connect(?TEST_CONNECTION, fun log_error/2, fun log_feedback/1) of
 %% 		{ok, Pid} ->
 %% 			Pid;
@@ -55,6 +58,13 @@ protocol(Socket, _State, Data) ->
   io:format("Recieved: ~p~n", [Data]),
   gen_tcp:send(Socket, "Invalid command.\n").
 
+protocol(Socket, _State, "apnse", Args) ->
+	[Name,Token, Msg] = Args,
+	ConnId = list_to_atom(Name),
+	Pid = apns:connect(ConnId, (apns:default_connection())#apns_connection
+				{ error_fun = fun log_error/2, feedback_fun = fun log_feedback/1 }),
+	apns:send_message(ConnId, Token, Msg, random:uniform(10), "chime"),
+	gen_tcp:send(Socket, io_lib:format("apns enhanced test ~p~n", [Pid])).
 
 log_error(MsgId, Status) ->
   error_logger:error_msg("Error on msg ~p: ~p~n", [MsgId, Status]).
