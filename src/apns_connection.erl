@@ -156,7 +156,7 @@ handle_info({ssl, SslSocket, Data}, State = #state{out_socket = SslSocket,
       case Command of
         8 -> %% Error
           Status = parse_status(StatusCode),
-          try Error(MsgId, Status) of
+          try Error(MsgId, Status, self()) of
             stop -> throw({stop, {msg_error, MsgId, Status}, State});
             _ -> noop
           catch

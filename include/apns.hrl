@@ -6,7 +6,7 @@
                           key_file          = undefined                             :: undefined | string(),
 						  cert_password     = undefined								:: undefined | string(),
                           timeout           = 30000                                 :: integer(),
-                          error_fun         = fun(X,Y) -> erlang:display({X,Y}) end :: fun((binary(), apns:status()) -> stop | _),
+                          error_fun         = fun(X,Y, Z) -> erlang:display({X,Y,Z}) end :: fun((binary(), apns:status()) -> stop | _),
                           feedback_host     = "feedback.sandbox.push.apple.com"     :: string(),
                           feedback_port     = 2196                                  :: integer(),
                           feedback_fun      = fun erlang:display/1                  :: fun(({calendar:datetime(), string()}) -> _),
@@ -20,3 +20,4 @@
                    badge = none                 :: none | integer(),
                    sound = none                 :: none | apns:apns_str(),
                    extra = []                   :: [apns_mochijson2:json_property()]}).
+-type apns_msg() :: #apns_msg{}.

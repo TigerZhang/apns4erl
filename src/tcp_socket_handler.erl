@@ -4,7 +4,7 @@
 -export([init/1, handle_call/3, handle_cast/2, handle_info/2,
 	 terminate/2, code_change/3]).
 
--record(state, {socket, auth}).
+-record(state, {msgid = 0 ::integer(), socket, auth}).
 
 %%---------------------------------------------------------------------
 %% Generic Server API
@@ -26,7 +26,7 @@ socket_init(Socket) ->
    %% {error,timeout} -> ok;
    %% {error, closed} -> exit(normal), ok
    %% end,
-   gen_tcp:send(Socket, "Erlang Test Protocol Server\n"),
+   gen_tcp:send(Socket, "Erlang Test Protocol Server\nType help to list the commands\n"),
    inet:setopts(Socket, [{active, true}]).
 
 %%---------------------------------------------------------------------
@@ -57,7 +57,7 @@ handle_info({tcp, Socket, Data}, State) when State#state.auth =:= noauth ->
 
 handle_info({tcp, Socket, Data}, State) when State#state.auth =:= auth ->
   T1=string:tokens(Data, "\r\n"),
-  [handle_wrapper(Socket, State, X) ||X <- T1],
+  [{handle_wrapper(Socket, State, X), State#state{msgid = State#state.msgid + 1}} ||X <- T1],
   {noreply, State};
 
 handle_info({tcp_closed, _Socket}, State) ->

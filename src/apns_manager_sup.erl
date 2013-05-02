@@ -4,26 +4,34 @@
 
 -module(apns_manager_sup).
 -behaviour(supervisor).
--export([init/1]).
+-export([init/1, start_manager/1]).
 
 %% ====================================================================
 %% API functions
 %% ====================================================================
--export([start_child/0, start_link/0]).
+-export([start_link/0, start_link/1]).
 
 -spec start_link() -> {ok, pid()} | ignore | {error, {already_started, pid()} | shutdown | term()}.
 start_link() ->
     supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
--spec start_child() -> {ok, term()}.
-start_child() ->
-	supervisor:start_child(?MODULE, []).
+-spec start_link(ConnId :: term()) -> {ok, pid()}
+				| {error, {already_started, pid()}}.
+start_link(ConnId) ->
+	supervisor:start_link({local, ?MODULE}, ?MODULE, [ConnId]).
+
+start_manager(ConnId) ->
+  supervisor:start_child(?MODULE, [ConnId]).
+
+%% -spec start_child() -> {ok, term()}.	
+%% start_child() ->
+%% 	supervisor:start_child(?MODULE, []).
 
 %% ====================================================================
 %% Application Behavioural functions 
 %% ====================================================================
-start(_Type, _Args) ->
-	supervisor:start_link(?MODULE, []).
+%%start(_Type, _Args) ->
+%%	supervisor:start_link(?MODULE, []).
 
 %% init/1
 %% ====================================================================
@@ -42,10 +50,10 @@ start(_Type, _Args) ->
 				   | temporary,
 	Modules :: [module()] | dynamic.
 %% ====================================================================
-init(Port) ->
-    Connection = {connection,{apns_manager_connection,start_link,Port},
-	          permanent,2000,worker,[apns_manager_connection]},
-    {ok,{{one_for_all,0,1}, [Connection]}}.
+init([]) ->
+    Connection = {connection,{apns_manager,start_link, []},
+	          permanent,2000,worker,[apns_manager]},
+    {ok,{{simple_one_for_one,0,1}, [Connection]}}.
 
 %% ====================================================================
 %% Internal functions

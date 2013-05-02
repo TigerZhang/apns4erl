@@ -20,10 +20,11 @@ start(_Type, _Args) ->
   pg2:create(accept_handlers),
   pg2:create(socket_handlers),
   supervisor:start_link(?MODULE, [apns_sup]),
+  supervisor:start_link(?MODULE, [apns_manager_sup]),
   {ok, Pid} = supervisor:start_link(?MODULE, [tcp_listen_handler, 2222, 1024]),
   supervisor:start_link(?MODULE, [tcp_accept_supervisor]),
   supervisor:start_link(?MODULE, [tcp_socket_supervisor]),
-  [start_tcp_accept_handler() || _ <- lists:seq(1,100)],
+  [start_tcp_accept_handler() || _ <- lists:seq(1,10)],
   {ok, Pid}.
 
 stop(_S) ->
@@ -36,6 +37,12 @@ init([apns_sup]) ->
 	{ok, {{one_for_one, 3, 10},
 		  [{apns_sup, {apns_sup, start_link, []},
       transient, 5000, supervisor, [apns_sup]}
+		  ]}};
+
+init([apns_manager_sup]) ->
+	{ok, {{one_for_one, 3, 10},
+		  [{apns_manager_sup, {apns_manager_sup, start_link, []},
+			transient, 5000, supervisor, [apns_manager_sup]}
 		  ]}};
 
 init([tcp_accept_supervisor]) ->
