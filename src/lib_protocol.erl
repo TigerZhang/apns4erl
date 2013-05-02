@@ -90,7 +90,7 @@ protocol(Socket, State, "apnsm", Args) ->
 	{Expiry2, []} = string:to_integer(Expiry1),
 	Expiry = apns:expiry(Expiry2),
   {_, _, MicroSecs} = erlang:now(),
-	apns_manager:send_message(MngId, apns:message_id(), DeviceToken, Alert, Badge, Sound, Expiry, ExtraArgs).
+	apns_manager:send_message(MngId, apns:message_id(), DeviceToken, Alert, Badge, Sound, Expiry, [{<<"acme2">>, <<"x">>}]).
 
 message_id() ->
   {_, _, MicroSecs} = erlang:now(),

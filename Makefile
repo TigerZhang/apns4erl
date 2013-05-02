@@ -1,4 +1,4 @@
-RUN := +Bc +K true -smp enable -pa ebin -s crypto -s inets -s ssl -s appmon -s debugger
+RUN := +Bc +K true -smp enable -pa ebin -s crypto -s inets -s ssl
 
 all:
 	rebar get-deps && rebar compile
@@ -20,7 +20,10 @@ doc: all
 
 xref: all
 	rebar skip_deps=true xref
-	
+
+debug: all
+	erl  -boot start_sasl ${RUN} -s apns -s appmon -s debugger
+
 run: all
 	if [ -f `hostname`.config ]; then\
 		erl  -config `hostname` -boot start_sasl ${RUN} -s apns;\
@@ -56,7 +59,7 @@ test_tcp: all
 		erl -noshell -noinput ${RUN} -run tcp_server_tests main;\
 	fi
 
-run_mgn: all
+run_mng: all
 	if [ -f `hostname`.config ]; then \
 		erl -noinput -config `hostname` ${RUN} -run apns_manager_app start; \
 	else \
@@ -68,16 +71,16 @@ DATE := `date +"%m%d-%H:%M:%S"`
 CORRECT_DEVICE_TOKEN := 130ab12bc1ef517bc574cb1199051a88057f6a9371028005f5e780cdb1588d49
 ERROR_DEVICE_TOKEN := 130ab12bc1ef517bc574cb1199051a88057f6a9371028005f5e780cdb1588d48
 test_mng: all test_mng_cases
-	erl  -noshell -boot start_sasl ${RUN} -s apns -sname test_mng &
+	erl  -noshell -boot start_sasl ${RUN}  -s appmon -s apns -sname test_mng &
 	sleep 5
-	echo "apnsm PushTestDev3 ${CORRECT_DEVICE_TOKEN} ${DATE}-hello31 31 chime 86400 {\"key\":31}" | ${NC}
+	echo "apnsm PushTestDev3 ${ERROR_DEVICE_TOKEN} ${DATE}-hello3 3 chime 86400 {\"key\":3}" | ${NC}
 	echo "apnsm PushTestDev4 ${CORRECT_DEVICE_TOKEN} ${DATE}-hello41 41 chime 86400 {\"key\":41}" | ${NC}
 	echo "apnsm PushTestDev3 ${CORRECT_DEVICE_TOKEN} ${DATE}-hello32 32 chime 86400 {\"key\":32}" | ${NC}
 	echo "apnsm PushTestDev4 ${ERROR_DEVICE_TOKEN} ${DATE}-hello4 4 chime 86400 {\"key\":4}" | ${NC}
 	echo "apnsm PushTestDev4 ${CORRECT_DEVICE_TOKEN} ${DATE}-hello42 42 chime 86400 {\"key\":42}" | ${NC}
 	echo "apnsm PushTestDev4 ${CORRECT_DEVICE_TOKEN} ${DATE}-hello43 43 chime 86400 {\"key\":43}" | ${NC}
 	echo "apnsm PushTestDev4 ${CORRECT_DEVICE_TOKEN} ${DATE}-hello44 44 chime 86400 {\"key\":44}" | ${NC}
-	sleep 30
+	sleep 60
 	kill `pgrep -f "beam.*-sname test_mng"`
 
 .PHONY: test_mng run

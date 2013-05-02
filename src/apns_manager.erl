@@ -41,57 +41,99 @@ start_manager(MngId) ->
 %% ====================================================================
 init(MngId) ->
 	io:format("apns_manager init ~p~n", [atom_to_list(MngId)]),
-	%% ets:new(MngId, [set,named_table]),
 	apns:connect(manager_id_to_connection_id(MngId), fun log_error/3, fun log_feedback/1),
 	{ok, #state{manager_id=MngId, messages_sent=[]}}.
 
-%% send_message(ConnId, MsgId, DeviceToken, Alert, Badge, Sound, Expiry, ExtraArgs) ->
-
 handle_cast({sendmsg, MngId, MsgId, DeviceToken, Alert, Badge, Sound, Expiry, ExtraArgs}, State) ->
-	%% ets:insert(MngId, #apns_msg{id=MsgId, expiry=Expiry, device_token=DeviceToken, alert=Alert,
-	%% 							 badge=Badge, sound=Sound, extra=ExtraArgs}),
 	MessagesSent = [{MsgId, #apns_msg{id=MsgId, expiry=Expiry, device_token=DeviceToken, alert=Alert,
 	 							 badge=Badge, sound=Sound, extra=ExtraArgs}} | State#state.messages_sent],
 	State1 = State#state{messages_sent = MessagesSent},
-	% handle_cast(sendmsg, State1),
 	gen_server:cast(MngId, sendmsg),
 	{noreply, State1};
-%%handle_cast(sendmsg, State=#state{current_msg = undefined}) ->
-%%	handle_cast(sendmsg, State#state{current_msg = ets:first(State#state.manager_id)}),
-%%	{noreply, State};
-	%%{noreply, State#state{current_msg = ets:first(State#state.manager_id)}};
-%%handle_cast(sendmsg, State=#state{current_msg = '$end_of_table'}) ->
-%%	io:format("end_of_table: ~p~n", [State#state.manager_id]),
-%%	ets:delete_all_objects(State#state.manager_id),
-%%	{noreply, State};
+
 handle_cast(sendmsg, State) ->
 	% try
-		%% Msg = State#state.current_msg,
-		MngId = State#state.manager_id,
-		%% NextMsg = ets:next(MngId, Msg),
-		RevertMessagesSent = lists:reverse(State#state.messages_sent),
 		CurrentMsgPos = State#state.current_msg_pos,
-		{_, Msg} = lists:nth(CurrentMsgPos, RevertMessagesSent),
+		if 
+			erlang:length(State#state.messages_sent) < CurrentMsgPos ->
+				{noreply, State};
+			true ->
+				%% message to deleave
+				RevertMessagesSent = lists:reverse(State#state.messages_sent),
 
-		io:format("current_msg_pos ~p~n~p~n~n~n", [CurrentMsgPos, State#state.messages_sent]),
+				{_, Msg} = lists:nth(CurrentMsgPos, RevertMessagesSent),
 
-		ConnId = manager_id_to_connection_id(MngId),
-		apns:connect(ConnId, fun log_error/3, fun log_feedback/1),
-		apns:send_message(ConnId, Msg#apns_msg.device_token,
-			Msg#apns_msg.alert, Msg#apns_msg.badge, Msg#apns_msg.sound),
-		%%apns:send_message(ConnId, DeviceToken, Alert, random:uniform(10), "chime"),
-		%%apns:send_message(manager_id_to_connection_id(MngId), Msg),
-		%%apns:send_message(manager_id_to_connection_id(MngId), State#state.),
-		NextMessagePos = CurrentMsgPos + 1,
-		{noreply, State#state{current_msg_pos = NextMessagePos}}
+				io:format("current_msg_pos ~p~nmessages_sent ~p~n~n~n", [CurrentMsgPos, State#state.messages_sent]),
+
+				%% calc the corresponding connection id
+				MngId = State#state.manager_id,
+				ConnId = manager_id_to_connection_id(MngId),
+
+				%% send the message out
+				apns:connect(ConnId, fun log_error/3, fun log_feedback/1),
+				%%apns:send_message(ConnId, Msg#apns_msg.device_token,
+				%%	Msg#apns_msg.alert, Msg#apns_msg.badge, Msg#apns_msg.sound),
+				apns:send_message(ConnId, Msg),
+				%%apns:send_message(ConnId, DeviceToken, Alert, random:uniform(10), "chime"),
+				%%apns:send_message(manager_id_to_connection_id(MngId), Msg),
+				%%apns:send_message(manager_id_to_connection_id(MngId), State#state.),
+
+				NextMessagePos = CurrentMsgPos + 1,
+
+				State1 = State#state{current_msg_pos = NextMessagePos},
+				check_queued_messages(State1),
+
+				{noreply, State1}
+		end
 	% catch
 	% 	_:_ ->
 	% 		io:format("handle_cast error"),
 	% 		{noreply, State#state{current_msg_pos = 1, messages_sent = []}}
 	% end
 	;
+
+handle_cast({rewind_position, MsgId}, State) ->
+	io:format("rewind~n"),
+	RevertMessagesSent = lists:reverse(State#state.messages_sent),
+	Pos = State#state.current_msg_pos,
+	case find_message_id_backward(RevertMessagesSent, Pos, MsgId) of
+		{ok, RewindPos} ->
+			%% rewind to next position
+			if
+				RewindPos < erlang:length(State#state.messages_sent) ->
+					io:format("rewind to ~p~n", [RewindPos + 1]),
+					gen_server:cast(self(), sendmsg),
+					{noreply, State#state{current_msg_pos = RewindPos + 1}};
+				true ->
+					{noreply, State}
+			end;
+		{error, not_found} ->
+			io:format("rewind, message id ~p not found~n", [MsgId]),
+			{noreply, State}
+	end;
 handle_cast(stop, State) ->
   {stop, normal, State}.
+
+find_message_id_backward(Messages, CurPos, MsgId) ->
+	Len = erlang:length(Messages),
+	{Pos, {_, Msg}} = 
+	if
+		CurPos > Len ->
+			{Len, lists:nth(Len, Messages)};
+		CurPos < 1 ->
+			{error, not_found};
+		true ->
+			{CurPos, lists:nth(CurPos, Messages)}
+	end,
+	io:format("current pos: ~p message id: ~p, target message id: ~p~n", [Pos, Msg#apns_msg.id, MsgId]),
+	if 
+		Msg#apns_msg.id == MsgId ->
+			{ok, Pos};
+		Pos == 1 ->
+			{error, not_found};
+		true ->
+			find_message_id_backward(Messages, Pos - 1, MsgId)
+	end.
 
 send_message(MngId, MsgId, DeviceToken, Alert, Badge, Sound, Expiry, ExtraArgs) ->
 	gen_server:cast(MngId, {
@@ -100,6 +142,8 @@ send_message(MngId, MsgId, DeviceToken, Alert, Badge, Sound, Expiry, ExtraArgs) 
 
 %% @hidden
 -spec handle_call(X, reference(), state()) -> {stop, {unknown_request, X}, {unknown_request, X}, state()}.
+handle_call(stop, _From, State) ->
+	{stop, normal, shutdown_ok, State};
 handle_call(Request, _From, State) ->
   {stop, {unknown_request, Request}, {unknown_request, Request}, State}.
 
@@ -110,7 +154,6 @@ handle_info(Request, State) ->
 %% @hidden
 -spec terminate(term(), state()) -> ok.
 terminate(_Reason, State) -> 
-	%%ets:delete(State#state.manager_id), 
 	ok.
 
 %% @hidden
@@ -121,11 +164,13 @@ code_change(_OldVsn, State, _Extra) ->  {ok, State}.
 %% Internal functions
 %% ====================================================================
 log_error(MsgId, Status, Pid) ->
-	ConnProcess = erlang:process_info(Pid, registered_name),
+	{_, ConnId} = erlang:process_info(Pid, registered_name),
+	MngId = connection_id_to_manager_id(ConnId),
 	%% atom_to_binary(ConnProcess),
- 	error_logger:error_msg("Error on msg ~p: ~p ~p~n", [MsgId, Status, erlang:process_info(Pid, registered_name)]).
+	gen_server:cast(MngId, {rewind_position, MsgId}),
+	apns_connection:stop(ConnId),
+ 	error_logger:error_msg("Error on msg ~p: ~p ~p~n", [MsgId, Status, ConnId]).
   
-
 log_feedback(Token) ->
   error_logger:warning_msg("Device with token ~p removed the app~n", [Token]).
 
@@ -134,7 +179,6 @@ manager_id_to_connection_id(MngId) ->
 	MngIdBinary = erlang:atom_to_binary(MngId, latin1),
 	ConnIdBinary = <<MngIdBinary/binary, <<"_conn">>/binary>>,
 	erlang:binary_to_atom(ConnIdBinary, latin1).
-	%% list_to_atom(atom_to_list(MngId) ++ "_conn").
 
 -spec connection_id_to_manager_id(atom()) -> atom().
 connection_id_to_manager_id(ConnId) ->
@@ -142,3 +186,19 @@ connection_id_to_manager_id(ConnId) ->
 	Pos = erlang:byte_size(ConnIdBinary) - erlang:byte_size(<<"_conn">>),
 	{MngIdBinary, <<"_conn">>} = erlang:split_binary(ConnIdBinary, Pos),
 	erlang:binary_to_atom(MngIdBinary, latin1).
+
+%% @doc make sure we have enought mailbox message to send the messages
+-spec check_queued_messages(state()) -> ok.
+check_queued_messages(State) ->
+	{message_queue_len, MailboxQueueLen} = erlang:process_info(self(), message_queue_len),
+	MessageQueueLen = erlang:length(State#state.messages_sent),
+	MailboxMessageNeeded = (MessageQueueLen - State#state.current_msg_pos + 1),
+	io:format("mailbox length ~p, message needed ~p~n", [MailboxQueueLen, MailboxMessageNeeded]),
+
+	if 
+		MailboxMessageNeeded > MailboxQueueLen ->
+			gen_server:cast(self(), sendmsg);
+		true ->
+			noop
+	end,
+	ok.

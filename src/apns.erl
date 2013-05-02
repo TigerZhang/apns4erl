@@ -167,7 +167,7 @@ message_id() ->
   Secs = calendar:datetime_to_gregorian_seconds(calendar:universal_time()),
   First = Secs rem 65536,
   Last = MicroSecs rem 65536,
-  <<First:2/unsigned-integer-unit:8, Last:2/unsigned-integer-unit:8>>.
+  <<1, 2, Last:2/unsigned-integer-unit:8>>.
 
 %% @doc  Generates a valid expiry value for messages.
 %%       If called with <code>none</code> as the parameter, it will return a <a>no-expire</a> value.
