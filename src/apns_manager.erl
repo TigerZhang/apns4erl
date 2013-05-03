@@ -13,6 +13,8 @@
 				manager_id :: atom()}).
 -type state() :: #state{}.
 
+-define(INTERVAL, 6000).
+
 %% ====================================================================
 %% API functions
 %% ====================================================================
@@ -42,11 +44,13 @@ start_manager(MngId) ->
 init(MngId) ->
 	io:format("apns_manager init ~p~n", [atom_to_list(MngId)]),
 	apns:connect(manager_id_to_connection_id(MngId), fun log_error/3, fun log_feedback/1),
+	erlang:send_after(?INTERVAL, self(), trigger),
 	{ok, #state{manager_id=MngId, messages_sent=[]}}.
 
 handle_cast({sendmsg, MngId, MsgId, DeviceToken, Alert, Badge, Sound, Expiry, ExtraArgs}, State) ->
 	MessagesSent = [{MsgId, #apns_msg{id=MsgId, expiry=Expiry, device_token=DeviceToken, alert=Alert,
-	 							 badge=Badge, sound=Sound, extra=ExtraArgs}} | State#state.messages_sent],
+	 							 badge=Badge, sound=Sound, extra=ExtraArgs}, 
+	 							 time_in_second()} | State#state.messages_sent],
 	State1 = State#state{messages_sent = MessagesSent},
 	gen_server:cast(MngId, sendmsg),
 	{noreply, State1};
@@ -61,9 +65,9 @@ handle_cast(sendmsg, State) ->
 				%% message to deleave
 				RevertMessagesSent = lists:reverse(State#state.messages_sent),
 
-				{_, Msg} = lists:nth(CurrentMsgPos, RevertMessagesSent),
+				{_, Msg, _} = lists:nth(CurrentMsgPos, RevertMessagesSent),
 
-				io:format("current_msg_pos ~p~nmessages_sent ~p~n~n~n", [CurrentMsgPos, State#state.messages_sent]),
+				%% io:format("current_msg_pos ~p~nmessages_sent ~p~n~n~n", [CurrentMsgPos, State#state.messages_sent]),
 
 				%% calc the corresponding connection id
 				MngId = State#state.manager_id,
@@ -116,7 +120,7 @@ handle_cast(stop, State) ->
 
 find_message_id_backward(Messages, CurPos, MsgId) ->
 	Len = erlang:length(Messages),
-	{Pos, {_, Msg}} = 
+	{Pos, {_, Msg, _}} = 
 	if
 		CurPos > Len ->
 			{Len, lists:nth(Len, Messages)};
@@ -148,6 +152,15 @@ handle_call(Request, _From, State) ->
   {stop, {unknown_request, Request}, {unknown_request, Request}, State}.
 
 -spec handle_info({ssl, tuple(), binary()} | {ssl_closed, tuple()} | X, state()) -> {noreply, state()} | {stop, ssl_closed | {unknown_request, X}, state()}.
+handle_info(trigger, State) ->
+	%% try to remove old messages
+	io:format("trigger~n"),
+	Now = time_in_second(),
+	RevertMessagesSent = lists:reverse(State#state.messages_sent),
+	RevertMessagesSent2 = do_remove_head_old_message(RevertMessagesSent, Now, 1),
+	MessagesSent2 = lists:reverse(RevertMessagesSent2),
+	erlang:send_after(?INTERVAL, self(), trigger),
+	{noreply, State#state{messages_sent = MessagesSent2}};
 handle_info(Request, State) ->
   {stop, {unknown_request, Request}, State}.
 
@@ -202,3 +215,25 @@ check_queued_messages(State) ->
 			noop
 	end,
 	ok.
+
+time_in_second() ->
+	calendar:datetime_to_gregorian_seconds(calendar:universal_time()).
+
+do_remove_head_old_message(Messages, Now, MaxInOneLoop) ->
+	Len = erlang:length(Messages),
+	if
+		MaxInOneLoop == 0 ->
+			Messages;
+		Len =< 0 ->
+			Messages;
+		true ->
+			[Head | Tail] = Messages,
+			{MsgId, _, Second} = Head,
+			if
+				Now > Second ->
+					io:format("remove old message: ~p~p~n", [MsgId, Second]),
+					do_remove_head_old_message(Tail, Now, MaxInOneLoop - 1);
+				true ->
+					Messages
+			end
+	end.
