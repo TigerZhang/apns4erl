@@ -220,7 +220,7 @@ handle_info(Request, State) ->
 
 %% @hidden
 -spec terminate(term(), state()) -> ok.
-terminate(_Reason, _State) -> ok.
+terminate(Reason, State) -> io:format("apns_connection ~p terminated.~n", [{Reason, State}]), ok.
 
 %% @hidden
 -spec code_change(term(), state(), term()) -> {ok, state()}.

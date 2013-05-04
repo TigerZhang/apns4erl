@@ -13,7 +13,7 @@
 				manager_id :: atom()}).
 -type state() :: #state{}.
 
--define(INTERVAL, 6000).
+-define(INTERVAL, 10000).
 
 %% ====================================================================
 %% API functions
@@ -58,33 +58,36 @@ handle_cast({sendmsg, MngId, MsgId, DeviceToken, Alert, Badge, Sound, Expiry, Ex
 handle_cast(sendmsg, State) ->
 	% try
 		CurrentMsgPos = State#state.current_msg_pos,
+		Len = erlang:length(State#state.messages_sent),
 		if 
-			erlang:length(State#state.messages_sent) < CurrentMsgPos ->
+			Len < CurrentMsgPos ->
 				{noreply, State};
 			true ->
 				%% message to deleave
 				RevertMessagesSent = lists:reverse(State#state.messages_sent),
 
-				{_, Msg, _} = lists:nth(CurrentMsgPos, RevertMessagesSent),
+				{Key, Msg, _} = lists:nth(CurrentMsgPos, RevertMessagesSent),
 
-				%% io:format("current_msg_pos ~p~nmessages_sent ~p~n~n~n", [CurrentMsgPos, State#state.messages_sent]),
+				io:format("current_msg_pos ~p count of messages ~p~n", [CurrentMsgPos, Len]),
 
 				%% calc the corresponding connection id
 				MngId = State#state.manager_id,
 				ConnId = manager_id_to_connection_id(MngId),
 
 				%% send the message out
-				apns:connect(ConnId, fun log_error/3, fun log_feedback/1),
+				io:format("try to connect: ~p~n",
+					[{ConnId, apns:connect(ConnId, fun log_error/3, fun log_feedback/1)}]),
 				%%apns:send_message(ConnId, Msg#apns_msg.device_token,
 				%%	Msg#apns_msg.alert, Msg#apns_msg.badge, Msg#apns_msg.sound),
 				apns:send_message(ConnId, Msg),
+				MessagesSent2 = lists:keyreplace(Key, 1, State#state.messages_sent, {Key, Msg, time_in_second()}),
 				%%apns:send_message(ConnId, DeviceToken, Alert, random:uniform(10), "chime"),
 				%%apns:send_message(manager_id_to_connection_id(MngId), Msg),
 				%%apns:send_message(manager_id_to_connection_id(MngId), State#state.),
 
 				NextMessagePos = CurrentMsgPos + 1,
 
-				State1 = State#state{current_msg_pos = NextMessagePos},
+				State1 = State#state{current_msg_pos = NextMessagePos, messages_sent = MessagesSent2},
 				check_queued_messages(State1),
 
 				{noreply, State1}
@@ -112,8 +115,8 @@ handle_cast({rewind_position, MsgId}, State) ->
 					{noreply, State}
 			end;
 		{error, not_found} ->
-			io:format("rewind, message id ~p not found~n", [MsgId]),
-			{noreply, State}
+			io:format("rewind, message id ~p not found. go back to the header~n", [MsgId]),
+			{noreply, State#state{current_msg_pos = 1}}
 	end;
 handle_cast(stop, State) ->
   {stop, normal, State}.
@@ -155,12 +158,19 @@ handle_call(Request, _From, State) ->
 handle_info(trigger, State) ->
 	%% try to remove old messages
 	io:format("trigger~n"),
-	Now = time_in_second(),
 	RevertMessagesSent = lists:reverse(State#state.messages_sent),
-	RevertMessagesSent2 = do_remove_head_old_message(RevertMessagesSent, Now, 1),
+	MessageTryToDeleteInOneLoop = 1,
+
+	%% delete the message and adjust the cursor
+	{RemainLoopCycle, RevertMessagesSent2} = do_remove_head_old_message(RevertMessagesSent, MessageTryToDeleteInOneLoop),
+	MessageDeletedCount = MessageTryToDeleteInOneLoop - RemainLoopCycle,
 	MessagesSent2 = lists:reverse(RevertMessagesSent2),
+	CurPos2 = State#state.current_msg_pos - MessageDeletedCount,
+
+	io:format("remove old message. current_msg_pos ~p count of messages ~p~n", [CurPos2, erlang:length(MessagesSent2)]),
+
 	erlang:send_after(?INTERVAL, self(), trigger),
-	{noreply, State#state{messages_sent = MessagesSent2}};
+	{noreply, State#state{messages_sent = MessagesSent2, current_msg_pos = CurPos2}};
 handle_info(Request, State) ->
   {stop, {unknown_request, Request}, State}.
 
@@ -219,21 +229,25 @@ check_queued_messages(State) ->
 time_in_second() ->
 	calendar:datetime_to_gregorian_seconds(calendar:universal_time()).
 
-do_remove_head_old_message(Messages, Now, MaxInOneLoop) ->
+do_remove_head_old_message(Messages, MaxInOneLoop) ->
 	Len = erlang:length(Messages),
 	if
 		MaxInOneLoop == 0 ->
-			Messages;
+			{MaxInOneLoop, Messages};
 		Len =< 0 ->
-			Messages;
+			{MaxInOneLoop, Messages};
 		true ->
 			[Head | Tail] = Messages,
 			{MsgId, _, Second} = Head,
+			Now = time_in_second(),
+			DeadLine = Second + (?INTERVAL/1000),
+			io:format("Now ~p DeadLine ~p~n", [Now, DeadLine]),
 			if
-				Now > Second ->
+				Now > DeadLine->
 					io:format("remove old message: ~p~p~n", [MsgId, Second]),
-					do_remove_head_old_message(Tail, Now, MaxInOneLoop - 1);
+					do_remove_head_old_message(Tail, MaxInOneLoop - 1);
 				true ->
-					Messages
+					io:format("remove old message: message ~p is still alive, give up.~n", [MsgId]),
+					{MaxInOneLoop, Messages}
 			end
 	end.
