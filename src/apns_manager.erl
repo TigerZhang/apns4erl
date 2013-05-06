@@ -63,7 +63,7 @@ handle_cast(sendmsg, State) ->
 			Len < CurrentMsgPos ->
 				{noreply, State};
 			true ->
-				%% message to deleave
+				%% message to send
 				RevertMessagesSent = lists:reverse(State#state.messages_sent),
 
 				{Key, Msg, _} = lists:nth(CurrentMsgPos, RevertMessagesSent),
@@ -77,13 +77,20 @@ handle_cast(sendmsg, State) ->
 				%% send the message out
 				io:format("try to connect: ~p~n",
 					[{ConnId, apns:connect(ConnId, fun log_error/3, fun log_feedback/1)}]),
-				%%apns:send_message(ConnId, Msg#apns_msg.device_token,
-				%%	Msg#apns_msg.alert, Msg#apns_msg.badge, Msg#apns_msg.sound),
+				case erlang:whereis(ConnId) of
+					undefined ->
+						throw(try_to_connnect_failed);
+					Pid ->
+						case erlang:is_process_alive(Pid) of
+							true ->
+								io:format("apns_connection alive: ~p ~p~n", [ConnId, Pid]);
+							false ->
+								io:format("apns_connection not alive:, ~p ~p~n", [ConnId, Pid])
+						end
+				end,
+
 				apns:send_message(ConnId, Msg),
 				MessagesSent2 = lists:keyreplace(Key, 1, State#state.messages_sent, {Key, Msg, time_in_second()}),
-				%%apns:send_message(ConnId, DeviceToken, Alert, random:uniform(10), "chime"),
-				%%apns:send_message(manager_id_to_connection_id(MngId), Msg),
-				%%apns:send_message(manager_id_to_connection_id(MngId), State#state.),
 
 				NextMessagePos = CurrentMsgPos + 1,
 
@@ -99,8 +106,10 @@ handle_cast(sendmsg, State) ->
 	% end
 	;
 
-handle_cast({rewind_position, MsgId}, State) ->
+handle_cast({rewind_position, MsgId, ConnPid}, State) ->
 	io:format("rewind~n"),
+	supervisor:terminate_child(apns_sup, ConnPid),
+
 	RevertMessagesSent = lists:reverse(State#state.messages_sent),
 	Pos = State#state.current_msg_pos,
 	case find_message_id_backward(RevertMessagesSent, Pos, MsgId) of
@@ -157,7 +166,6 @@ handle_call(Request, _From, State) ->
 -spec handle_info({ssl, tuple(), binary()} | {ssl_closed, tuple()} | X, state()) -> {noreply, state()} | {stop, ssl_closed | {unknown_request, X}, state()}.
 handle_info(trigger, State) ->
 	%% try to remove old messages
-	io:format("trigger~n"),
 	RevertMessagesSent = lists:reverse(State#state.messages_sent),
 	MessageTryToDeleteInOneLoop = 1,
 
@@ -167,9 +175,17 @@ handle_info(trigger, State) ->
 	MessagesSent2 = lists:reverse(RevertMessagesSent2),
 	CurPos2 = State#state.current_msg_pos - MessageDeletedCount,
 
-	io:format("remove old message. current_msg_pos ~p count of messages ~p~n", [CurPos2, erlang:length(MessagesSent2)]),
+	Pid = self(),
+	Len = erlang:length(MessagesSent2),
+	io:format("~p remove old message. current_msg_pos ~p count of messages ~p~n",
+		[Pid, CurPos2, Len]),
 
-	erlang:send_after(?INTERVAL, self(), trigger),
+	if
+		Len == 0 ->
+			erlang:send_after((?INTERVAL) * 10, Pid, trigger);
+		Len > 0 ->
+			erlang:send_after(?INTERVAL, Pid, trigger)
+	end,
 	{noreply, State#state{messages_sent = MessagesSent2, current_msg_pos = CurPos2}};
 handle_info(Request, State) ->
   {stop, {unknown_request, Request}, State}.
@@ -189,9 +205,7 @@ code_change(_OldVsn, State, _Extra) ->  {ok, State}.
 log_error(MsgId, Status, Pid) ->
 	{_, ConnId} = erlang:process_info(Pid, registered_name),
 	MngId = connection_id_to_manager_id(ConnId),
-	%% atom_to_binary(ConnProcess),
-	gen_server:cast(MngId, {rewind_position, MsgId}),
-	apns_connection:stop(ConnId),
+	gen_server:cast(MngId, {rewind_position, MsgId, Pid}),
  	error_logger:error_msg("Error on msg ~p: ~p ~p~n", [MsgId, Status, ConnId]).
   
 log_feedback(Token) ->

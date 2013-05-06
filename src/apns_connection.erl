@@ -139,7 +139,16 @@ handle_cast(Msg, State) when is_record(Msg, apns_msg) ->
     ok ->
       {noreply, State};
     {error, Reason} ->
-      {stop, {error, Reason}, State}
+      % try to reconnect
+      error_logger:info_msg("send_payload failed. Reconnecting to APNS...~n"),
+      try
+        case open_out(State#state.connection) of
+          {ok, Socket} -> gen_server:cast(self(), Msg);
+          {error, Reason} -> {stop, {error, Reason}, State}
+        end
+      catch
+        _:{error, Reason2} -> {stop, Reason2}
+      end
   end;
 
 handle_cast(stop, State) ->

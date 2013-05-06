@@ -26,7 +26,7 @@ socket_init(Socket) ->
    %% {error,timeout} -> ok;
    %% {error, closed} -> exit(normal), ok
    %% end,
-   gen_tcp:send(Socket, "Erlang Test Protocol Server\nType help to list the commands\n"),
+   gen_tcp:send(Socket, "Erlang Test Protocol Server\nType help to display a list the commands\n"),
    inet:setopts(Socket, [{active, true}]).
 
 %%---------------------------------------------------------------------
